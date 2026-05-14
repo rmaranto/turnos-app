@@ -13,12 +13,10 @@ TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_WHATSAPP_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
 
-
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
-
 
 def init_db():
     with get_db() as db:
@@ -41,10 +39,7 @@ def init_db():
         db.execute("INSERT OR IGNORE INTO config VALUES ('ultimo_turno', '0')")
         db.commit()
 
-
-# Inicializar la BD al arrancar (funciona tanto con gunicorn como en desarrollo)
 init_db()
-
 
 def send_whatsapp(to_number, message):
     if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
@@ -59,7 +54,6 @@ def send_whatsapp(to_number, message):
         print(f"Error WhatsApp: {e}")
         return False
 
-
 def get_siguiente_turno():
     with get_db() as db:
         row = db.execute("SELECT valor FROM config WHERE clave='ultimo_turno'").fetchone()
@@ -68,11 +62,9 @@ def get_siguiente_turno():
         db.commit()
         return siguiente
 
-
 @app.route("/")
 def index():
     return render_template_string(HTML_TEMPLATE)
-
 
 @app.route("/api/registrar", methods=["POST"])
 def registrar():
@@ -109,15 +101,13 @@ def registrar():
         "mensaje": f"Turno N {numero} registrado. Se enviara aviso por WhatsApp."
     })
 
-
 @app.route("/api/fila", methods=["GET"])
 def ver_fila():
     with get_db() as db:
         rows = db.execute(
             "SELECT * FROM turnos WHERE estado='esperando' ORDER BY numero_turno ASC"
         ).fetchall()
-        return jsonify([dict(r) for r in rows])
-
+    return jsonify([dict(r) for r in rows])
 
 @app.route("/api/llamar", methods=["POST"])
 def llamar_siguiente():
@@ -141,7 +131,6 @@ def llamar_siguiente():
 
     return jsonify({"ok": True, "turno": siguiente})
 
-
 @app.route("/api/completar/<int:turno_id>", methods=["POST"])
 def completar(turno_id):
     with get_db() as db:
@@ -150,8 +139,7 @@ def completar(turno_id):
             return jsonify({"error": "Turno no encontrado"}), 404
         db.execute("UPDATE turnos SET estado='completado' WHERE id=?", (turno_id,))
         db.commit()
-        return jsonify({"ok": True})
-
+    return jsonify({"ok": True})
 
 @app.route("/api/historial", methods=["GET"])
 def historial():
@@ -159,14 +147,12 @@ def historial():
         rows = db.execute(
             "SELECT * FROM turnos ORDER BY numero_turno DESC LIMIT 50"
         ).fetchall()
-        return jsonify([dict(r) for r in rows])
-
+    return jsonify([dict(r) for r in rows])
 
 def get_count_esperando():
     with get_db() as db:
         r = db.execute("SELECT COUNT(*) as c FROM turnos WHERE estado='esperando'").fetchone()
         return r["c"]
-
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -176,178 +162,374 @@ HTML_TEMPLATE = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Sistema de Turnos</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #1a202c; }
-header { background: #2b6cb0; color: white; padding: 20px 30px; display: flex; align-items: center; gap: 12px; }
-header h1 { font-size: 1.5rem; }
-.tabs { display: flex; gap: 0; background: white; border-bottom: 2px solid #e2e8f0; padding: 0 30px; }
-.tab { padding: 14px 24px; cursor: pointer; font-weight: 600; color: #718096; border-bottom: 3px solid transparent; transition: all .2s; }
-.tab.active { color: #2b6cb0; border-bottom-color: #2b6cb0; }
-.content { padding: 30px; max-width: 900px; margin: 0 auto; }
-.panel { display: none; }
-.panel.active { display: block; }
-.card { background: white; border-radius: 12px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 20px; }
-.form-group { margin-bottom: 18px; }
-label { display: block; font-weight: 600; margin-bottom: 6px; color: #4a5568; }
-input { width: 100%; padding: 10px 14px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 1rem; transition: border .2s; }
-input:focus { outline: none; border-color: #2b6cb0; }
-.btn { padding: 12px 28px; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all .2s; }
-.btn-primary { background: #2b6cb0; color: white; width: 100%; }
-.btn-primary:hover { background: #2c5282; }
-.btn-success { background: #38a169; color: white; }
-.btn-success:hover { background: #276749; }
-.btn-sm { padding: 6px 14px; font-size: .85rem; }
-.alert { padding: 14px 18px; border-radius: 8px; margin-bottom: 16px; font-weight: 500; }
-.alert-success { background: #c6f6d5; color: #276749; }
-.alert-error { background: #fed7d7; color: #9b2335; }
-.turno-badge { display: inline-block; background: #ebf8ff; color: #2b6cb0; font-size: 2rem; font-weight: 800; padding: 8px 24px; border-radius: 12px; border: 2px solid #bee3f8; }
-table { width: 100%; border-collapse: collapse; }
-th { text-align: left; padding: 10px 14px; background: #f7fafc; color: #718096; font-size: .85rem; text-transform: uppercase; letter-spacing: .05em; }
-td { padding: 12px 14px; border-top: 1px solid #e2e8f0; vertical-align: middle; }
-tr:hover td { background: #f7fafc; }
-.estado { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: .8rem; font-weight: 600; }
-.estado-esperando { background: #fefcbf; color: #744210; }
-.estado-llamado { background: #bee3f8; color: #2c5282; }
-.estado-completado { background: #c6f6d5; color: #276749; }
-.stat { text-align: center; }
-.stat-num { font-size: 2.5rem; font-weight: 800; color: #2b6cb0; }
-.stat-label { color: #718096; font-size: .9rem; margin-top: 4px; }
-.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
-.empty { text-align: center; padding: 40px; color: #a0aec0; }
-.refresh-note { font-size: .8rem; color: #a0aec0; margin-top: 8px; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #1a202c;
+  }
+
+  header {
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+    color: white;
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  header .logo {
+    width: 42px; height: 42px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem;
+  }
+
+  header h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.3px; }
+  header p { font-size: 0.8rem; opacity: 0.8; margin-top: 2px; }
+
+  .tabs {
+    display: flex; gap: 4px;
+    background: rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+    padding: 8px 24px;
+    border-bottom: 1px solid rgba(255,255,255,0.15);
+  }
+
+  .tab {
+    padding: 8px 20px; cursor: pointer;
+    font-weight: 600; font-size: 0.88rem;
+    color: rgba(255,255,255,0.7);
+    border-radius: 8px;
+    transition: all .2s;
+    border: 1px solid transparent;
+  }
+
+  .tab:hover { color: white; background: rgba(255,255,255,0.12); }
+  .tab.active { color: #6c5ce7; background: white; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+
+  .content { padding: 28px 24px; max-width: 860px; margin: 0 auto; }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fadeIn .25s ease; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .card { background: white; border-radius: 16px; padding: 28px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin-bottom: 20px; }
+  .card-title { font-size: 1.1rem; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
+  .card-subtitle { font-size: 0.83rem; color: #a0aec0; margin-bottom: 24px; }
+
+  .form-group { margin-bottom: 20px; }
+  label { display: block; font-weight: 600; font-size: 0.88rem; margin-bottom: 8px; color: #4a5568; }
+
+  input[type="text"], input[type="tel"] {
+    width: 100%; padding: 12px 16px;
+    border: 2px solid #e8ecf0; border-radius: 10px;
+    font-size: 0.95rem; font-family: inherit;
+    transition: all .2s; background: #fafbfc; color: #2d3748;
+  }
+
+  input:focus { outline: none; border-color: #6c5ce7; background: white; box-shadow: 0 0 0 3px rgba(108,92,231,0.1); }
+
+  .phone-row { display: flex; gap: 10px; }
+
+  .country-select {
+    padding: 12px 12px; border: 2px solid #e8ecf0; border-radius: 10px;
+    font-size: 0.88rem; font-family: inherit; background: #fafbfc; color: #2d3748;
+    cursor: pointer; transition: all .2s; min-width: 140px;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23718096' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px;
+  }
+
+  .country-select:focus { outline: none; border-color: #6c5ce7; box-shadow: 0 0 0 3px rgba(108,92,231,0.1); }
+  .phone-input-wrap { flex: 1; }
+
+  .btn { padding: 13px 28px; border: none; border-radius: 10px; font-size: 0.95rem; font-weight: 700; font-family: inherit; cursor: pointer; transition: all .2s; display: inline-flex; align-items: center; gap: 8px; }
+
+  .btn-primary { background: linear-gradient(135deg, #6c5ce7, #a29bfe); color: white; width: 100%; justify-content: center; box-shadow: 0 4px 15px rgba(108,92,231,0.35); }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(108,92,231,0.45); }
+
+  .btn-success { background: linear-gradient(135deg, #00b894, #00cec9); color: white; box-shadow: 0 4px 15px rgba(0,184,148,0.3); }
+  .btn-success:hover { transform: translateY(-1px); }
+
+  .btn-outline { background: white; color: #6c5ce7; border: 2px solid #e8ecf0; }
+  .btn-outline:hover { border-color: #6c5ce7; background: #f8f7ff; }
+  .btn-sm { padding: 7px 14px; font-size: 0.82rem; border-radius: 8px; }
+
+  .btn-complete { background: #f0fdf4; color: #15803d; border: 1.5px solid #bbf7d0; font-size: 0.82rem; padding: 6px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .2s; }
+  .btn-complete:hover { background: #dcfce7; }
+
+  .alert { padding: 14px 18px; border-radius: 12px; margin-bottom: 20px; font-weight: 500; font-size: 0.9rem; display: flex; align-items: flex-start; gap: 10px; }
+  .alert-success { background: linear-gradient(135deg, #f0fdf4, #dcfce7); color: #166534; border: 1px solid #bbf7d0; }
+  .alert-error { background: linear-gradient(135deg, #fef2f2, #fee2e2); color: #991b1b; border: 1px solid #fecaca; }
+
+  .turno-highlight { background: linear-gradient(135deg, #6c5ce7, #a29bfe); color: white; border-radius: 14px; padding: 20px 24px; text-align: center; margin-bottom: 20px; box-shadow: 0 8px 25px rgba(108,92,231,0.35); }
+  .turno-highlight .turno-num { font-size: 3.5rem; font-weight: 800; line-height: 1; }
+  .turno-highlight .turno-label { font-size: 0.85rem; opacity: 0.85; margin-top: 4px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 10px 16px; background: #f8f9fb; color: #718096; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; border-bottom: 2px solid #f0f0f0; }
+  td { padding: 13px 16px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; font-size: 0.9rem; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafbff; }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
+  .badge-waiting { background: #fef3c7; color: #92400e; }
+  .badge-called { background: #dbeafe; color: #1e40af; }
+  .badge-done { background: #d1fae5; color: #065f46; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+  .stat-card { background: white; border-radius: 16px; padding: 22px; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border-top: 4px solid transparent; transition: transform .2s; }
+  .stat-card:hover { transform: translateY(-2px); }
+  .stat-card:nth-child(1) { border-color: #6c5ce7; }
+  .stat-card:nth-child(2) { border-color: #0984e3; }
+  .stat-card:nth-child(3) { border-color: #00b894; }
+  .stat-num { font-size: 2.6rem; font-weight: 800; color: #2d3748; line-height: 1; }
+  .stat-card:nth-child(1) .stat-num { color: #6c5ce7; }
+  .stat-card:nth-child(2) .stat-num { color: #0984e3; }
+  .stat-card:nth-child(3) .stat-num { color: #00b894; }
+  .stat-label { color: #a0aec0; font-size: 0.82rem; font-weight: 600; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .empty { text-align: center; padding: 48px 20px; color: #cbd5e0; }
+  .empty-icon { font-size: 2.5rem; margin-bottom: 12px; }
+  .empty-text { font-size: 0.95rem; }
+
+  .called-card { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1.5px solid #bbf7d0; border-radius: 14px; padding: 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .called-num { background: linear-gradient(135deg, #00b894, #00cec9); color: white; border-radius: 12px; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 800; flex-shrink: 0; box-shadow: 0 4px 12px rgba(0,184,148,0.35); }
+  .called-info { flex: 1; }
+  .called-info .called-name { font-weight: 700; font-size: 1rem; color: #2d3748; }
+  .called-info .called-phone { font-size: 0.85rem; color: #718096; margin-top: 2px; }
+
+  .turno-row-num { background: linear-gradient(135deg, #6c5ce7, #a29bfe); color: white; border-radius: 8px; padding: 4px 10px; font-weight: 700; font-size: 0.9rem; display: inline-block; }
+  .helper-text { font-size: 0.8rem; color: #a0aec0; margin-top: 10px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+  .admin-actions { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+
+  @media (max-width: 600px) {
+    .stats-grid { grid-template-columns: 1fr; }
+    .phone-row { flex-direction: column; }
+    header h1 { font-size: 1.1rem; }
+    .content { padding: 16px 14px; }
+  }
 </style>
 </head>
 <body>
+
 <header>
-<span style="font-size:1.8rem">&#127903;</span>
-<h1>Sistema de Turnos con WhatsApp</h1>
+  <div class="logo">&#127903;</div>
+  <div>
+    <h1>Sistema de Turnos</h1>
+    <p>Notificaciones por WhatsApp</p>
+  </div>
 </header>
+
 <div class="tabs">
-<div class="tab active" onclick="showTab('registro')">Registrarse</div>
-<div class="tab" onclick="showTab('fila')">Fila de Espera</div>
-<div class="tab" onclick="showTab('admin')">Panel Admin</div>
-<div class="tab" onclick="showTab('historial')">Historial</div>
+  <div class="tab active" onclick="showTab('registro')">&#9654; Registrarse</div>
+  <div class="tab" onclick="showTab('fila')">&#128203; Fila de Espera</div>
+  <div class="tab" onclick="showTab('admin')">&#9881; Panel Admin</div>
+  <div class="tab" onclick="showTab('historial')">&#128202; Historial</div>
 </div>
+
 <div class="content">
-<div id="tab-registro" class="panel active">
-<div class="card">
-<h2 style="margin-bottom:20px;color:#2b6cb0">Sacar turno</h2>
-<div id="msg-registro"></div>
-<div class="form-group">
-<label>Nombre completo</label>
-<input type="text" id="nombre" placeholder="Ej: Juan Garcia" />
+
+  <div id="tab-registro" class="panel active">
+    <div class="card">
+      <div class="card-title">&#127919; Sacar turno</div>
+      <div class="card-subtitle">Completa tus datos y recibe notificaciones por WhatsApp</div>
+      <div id="msg-registro"></div>
+      <div class="form-group">
+        <label>Nombre completo</label>
+        <input type="text" id="nombre" placeholder="Ej: Juan Garcia" autocomplete="off"/>
+      </div>
+      <div class="form-group">
+        <label>Numero de celular</label>
+        <div class="phone-row">
+          <select class="country-select" id="pais">
+            <option value="52" selected>MX +52</option>
+            <option value="1">US +1</option>
+            <option value="1">CA +1</option>
+            <option value="54">AR +54</option>
+            <option value="57">CO +57</option>
+            <option value="56">CL +56</option>
+            <option value="51">PE +51</option>
+            <option value="58">VE +58</option>
+            <option value="34">ES +34</option>
+          </select>
+          <div class="phone-input-wrap">
+            <input type="tel" id="telefono" placeholder="Ej: 5512345678" inputmode="numeric"/>
+          </div>
+        </div>
+        <div class="helper-text">Ingresa tu numero sin el codigo de pais</div>
+      </div>
+      <button class="btn btn-primary" onclick="registrar()">
+        &#128247; Obtener mi turno
+      </button>
+      <div class="helper-text" style="text-align:center;margin-top:14px">
+        Recibiras un WhatsApp cuando sea tu turno
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-fila" class="panel">
+    <div class="card">
+      <div class="section-header">
+        <div class="card-title">&#128203; Fila de espera</div>
+        <button class="btn btn-outline btn-sm" onclick="cargarFila()">&#8635; Actualizar</button>
+      </div>
+      <div id="tabla-fila"><div class="empty"><div class="empty-icon">&#9203;</div><div class="empty-text">Cargando...</div></div></div>
+    </div>
+  </div>
+
+  <div id="tab-admin" class="panel">
+    <div id="stats-container" class="stats-grid"></div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:16px">&#9881; Panel de control</div>
+      <div id="msg-admin"></div>
+      <div class="admin-actions">
+        <button class="btn btn-success" onclick="llamarSiguiente()">&#128266; Llamar siguiente</button>
+        <button class="btn btn-outline btn-sm" onclick="cargarStats()">&#8635; Actualizar</button>
+      </div>
+      <div id="turno-llamado"></div>
+    </div>
+  </div>
+
+  <div id="tab-historial" class="panel">
+    <div class="card">
+      <div class="section-header">
+        <div class="card-title">&#128202; Historial reciente</div>
+        <button class="btn btn-outline btn-sm" onclick="cargarHistorial()">&#8635; Actualizar</button>
+      </div>
+      <div id="tabla-historial"><div class="empty"><div class="empty-icon">&#128202;</div><div class="empty-text">Cargando...</div></div></div>
+    </div>
+  </div>
+
 </div>
-<div class="form-group">
-<label>Celular (con codigo de pais, sin +)</label>
-<input type="tel" id="telefono" placeholder="Ej: 5491155554444" />
-</div>
-<button class="btn btn-primary" onclick="registrar()">Obtener turno</button>
-<p class="refresh-note" style="margin-top:12px">Recibiras una notificacion por WhatsApp con tu numero de turno y cuando te llamen.</p>
-</div>
-</div>
-<div id="tab-fila" class="panel">
-<div class="card">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-<h2 style="color:#2b6cb0">Fila de espera</h2>
-<button class="btn btn-sm" style="background:#e2e8f0;color:#4a5568" onclick="cargarFila()">Actualizar</button>
-</div>
-<div id="tabla-fila"><div class="empty">Cargando...</div></div>
-</div>
-</div>
-<div id="tab-admin" class="panel">
-<div id="stats-container" class="stats-grid"></div>
-<div class="card">
-<h2 style="margin-bottom:16px;color:#2b6cb0">Panel de control</h2>
-<div id="msg-admin"></div>
-<button class="btn btn-success" onclick="llamarSiguiente()" style="margin-bottom:16px">Llamar siguiente turno</button>
-<div id="turno-llamado"></div>
-</div>
-</div>
-<div id="tab-historial" class="panel">
-<div class="card">
-<h2 style="margin-bottom:16px;color:#2b6cb0">Historial reciente</h2>
-<div id="tabla-historial"><div class="empty">Cargando...</div></div>
-</div>
-</div>
-</div>
+
 <script>
 function showTab(name) {
-document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['registro','fila','admin','historial'][i]===name));
-document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-document.getElementById('tab-'+name).classList.add('active');
-if (name==='fila') cargarFila();
-if (name==='admin') { cargarFila(); cargarStats(); }
-if (name==='historial') cargarHistorial();
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    t.classList.toggle('active', ['registro','fila','admin','historial'][i]===name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if (name==='fila') cargarFila();
+  if (name==='admin') { cargarFila(); cargarStats(); }
+  if (name==='historial') cargarHistorial();
 }
+
 async function registrar() {
-const nombre = document.getElementById('nombre').value.trim();
-const telefono = document.getElementById('telefono').value.trim();
-const el = document.getElementById('msg-registro');
-if (!nombre || !telefono) { el.innerHTML='<div class="alert alert-error">Completa ambos campos.</div>'; return; }
-const res = await fetch('/api/registrar', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({nombre, telefono})});
-const data = await res.json();
-if (data.ok) {
-el.innerHTML = '<div class="alert alert-success">Turno N <strong>' + data.turno + '</strong> asignado. Recibiras WhatsApp de confirmacion.</div>';
-document.getElementById('nombre').value='';
-document.getElementById('telefono').value='';
-} else {
-el.innerHTML = '<div class="alert alert-error">' + data.error + '</div>';
+  const nombre = document.getElementById('nombre').value.trim();
+  const telefonoLocal = document.getElementById('telefono').value.trim().replace(/\D/g,'');
+  const pais = document.getElementById('pais').value;
+  const telefono = pais + telefonoLocal;
+  const el = document.getElementById('msg-registro');
+
+  if (!nombre || !telefonoLocal) {
+    el.innerHTML='<div class="alert alert-error">Completa tu nombre y numero de celular.</div>';
+    return;
+  }
+
+  const btn = document.querySelector('#tab-registro .btn-primary');
+  btn.disabled = true;
+  btn.textContent = 'Registrando...';
+
+  const res = await fetch('/api/registrar', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({nombre, telefono})
+  });
+  const data = await res.json();
+  btn.disabled = false;
+  btn.innerHTML = '&#128247; Obtener mi turno';
+
+  if (data.ok) {
+    el.innerHTML = '<div class="turno-highlight"><div class="turno-num">#' + data.turno + '</div><div class="turno-label">Tu numero de turno &bull; ' + nombre + '</div></div><div class="alert alert-success">Turno asignado. Recibiras un WhatsApp de confirmacion en breve.</div>';
+    document.getElementById('nombre').value='';
+    document.getElementById('telefono').value='';
+  } else {
+    el.innerHTML = '<div class="alert alert-error">' + data.error + '</div>';
+  }
 }
-}
+
 async function cargarFila() {
-const res = await fetch('/api/fila');
-const filas = await res.json();
-const el = document.getElementById('tabla-fila');
-if (!filas.length) { el.innerHTML='<div class="empty">No hay turnos en espera</div>'; return; }
-el.innerHTML = '<table><thead><tr><th>N Turno</th><th>Nombre</th><th>Telefono</th><th>Estado</th></tr></thead><tbody>' +
-filas.map(f=>'<tr><td><strong>#'+f.numero_turno+'</strong></td><td>'+f.nombre+'</td><td>'+f.telefono+'</td><td><span class="estado estado-esperando">Esperando</span></td></tr>').join('') +
-'</tbody></table>';
+  const res = await fetch('/api/fila');
+  const filas = await res.json();
+  const el = document.getElementById('tabla-fila');
+  if (!filas.length) {
+    el.innerHTML='<div class="empty"><div class="empty-icon">&#9989;</div><div class="empty-text">No hay turnos en espera</div></div>';
+    return;
+  }
+  el.innerHTML = '<table><thead><tr><th>Turno</th><th>Nombre</th><th>Telefono</th><th>Estado</th></tr></thead><tbody>' +
+    filas.map(f=>'<tr><td><span class="turno-row-num">#'+f.numero_turno+'</span></td><td><strong>'+f.nombre+'</strong></td><td>'+f.telefono+'</td><td><span class="badge badge-waiting">Esperando</span></td></tr>').join('') +
+    '</tbody></table>';
 }
+
 async function cargarStats() {
-const [fila, hist] = await Promise.all([fetch('/api/fila').then(r=>r.json()), fetch('/api/historial').then(r=>r.json())]);
-const completados = hist.filter(h=>h.estado==='completado').length;
-const llamados = hist.filter(h=>h.estado==='llamado').length;
-document.getElementById('stats-container').innerHTML =
-'<div class="card stat"><div class="stat-num">'+fila.length+'</div><div class="stat-label">En espera</div></div>' +
-'<div class="card stat"><div class="stat-num">'+llamados+'</div><div class="stat-label">Llamados</div></div>' +
-'<div class="card stat"><div class="stat-num">'+completados+'</div><div class="stat-label">Completados</div></div>';
+  const [fila, hist] = await Promise.all([
+    fetch('/api/fila').then(r=>r.json()),
+    fetch('/api/historial').then(r=>r.json())
+  ]);
+  const completados = hist.filter(h=>h.estado==='completado').length;
+  const llamados = hist.filter(h=>h.estado==='llamado').length;
+  document.getElementById('stats-container').innerHTML =
+    '<div class="stat-card"><div class="stat-num">'+fila.length+'</div><div class="stat-label">En espera</div></div>' +
+    '<div class="stat-card"><div class="stat-num">'+llamados+'</div><div class="stat-label">Llamados</div></div>' +
+    '<div class="stat-card"><div class="stat-num">'+completados+'</div><div class="stat-label">Completados</div></div>';
 }
+
 async function llamarSiguiente() {
-const el = document.getElementById('msg-admin');
-const res = await fetch('/api/llamar', {method:'POST'});
-const data = await res.json();
-if (data.ok) {
-const t = data.turno;
-document.getElementById('turno-llamado').innerHTML =
-'<div class="alert alert-success">Llamando turno: <span class="turno-badge">#'+t.numero_turno+'</span>' +
-'<strong style="margin-left:12px">'+t.nombre+'</strong>' +
-'<span style="color:#718096;margin-left:8px">'+t.telefono+'</span>' +
-'<button class="btn btn-sm" style="background:#38a169;color:white;margin-left:12px" onclick="completar('+t.id+')">Completar</button></div>';
-cargarStats();
-} else {
-el.innerHTML = '<div class="alert alert-error">'+data.error+'</div>';
-setTimeout(()=>el.innerHTML='', 3000);
+  const el = document.getElementById('msg-admin');
+  const res = await fetch('/api/llamar', {method:'POST'});
+  const data = await res.json();
+  if (data.ok) {
+    const t = data.turno;
+    document.getElementById('turno-llamado').innerHTML =
+      '<div class="called-card">' +
+        '<div class="called-num">#'+t.numero_turno+'</div>' +
+        '<div class="called-info"><div class="called-name">'+t.nombre+'</div><div class="called-phone">'+t.telefono+'</div></div>' +
+        '<button class="btn-complete" onclick="completar('+t.id+')">Completar</button>' +
+      '</div>';
+    cargarStats();
+  } else {
+    el.innerHTML = '<div class="alert alert-error">'+data.error+'</div>';
+    setTimeout(()=>el.innerHTML='', 3000);
+  }
 }
-}
+
 async function completar(id) {
-await fetch('/api/completar/'+id, {method:'POST'});
-document.getElementById('turno-llamado').innerHTML = '<div class="alert alert-success">Turno completado.</div>';
-setTimeout(()=>document.getElementById('turno-llamado').innerHTML='', 2000);
-cargarStats();
+  await fetch('/api/completar/'+id, {method:'POST'});
+  document.getElementById('turno-llamado').innerHTML = '<div class="alert alert-success">Turno completado.</div>';
+  setTimeout(()=>document.getElementById('turno-llamado').innerHTML='', 2500);
+  cargarStats();
 }
+
 async function cargarHistorial() {
-const res = await fetch('/api/historial');
-const rows = await res.json();
-const el = document.getElementById('tabla-historial');
-if (!rows.length) { el.innerHTML='<div class="empty">Sin registros aun</div>'; return; }
-el.innerHTML = '<table><thead><tr><th>N</th><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Registrado</th></tr></thead><tbody>' +
-rows.map(r=>'<tr><td><strong>#'+r.numero_turno+'</strong></td><td>'+r.nombre+'</td><td>'+r.telefono+'</td><td><span class="estado estado-'+r.estado+'">'+r.estado+'</span></td><td style="font-size:.85rem;color:#718096">'+new Date(r.creado_en+'Z').toLocaleString('es')+'</td></tr>').join('') +
-'</tbody></table>';
+  const res = await fetch('/api/historial');
+  const rows = await res.json();
+  const el = document.getElementById('tabla-historial');
+  if (!rows.length) {
+    el.innerHTML='<div class="empty"><div class="empty-icon">&#128202;</div><div class="empty-text">Sin registros aun</div></div>';
+    return;
+  }
+  const eClass = { esperando:'badge-waiting', llamado:'badge-called', completado:'badge-done' };
+  el.innerHTML = '<table><thead><tr><th>Turno</th><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Registrado</th></tr></thead><tbody>' +
+    rows.map(r=>'<tr><td><span class="turno-row-num">#'+r.numero_turno+'</span></td><td><strong>'+r.nombre+'</strong></td><td>'+r.telefono+'</td><td><span class="badge '+eClass[r.estado]+'">'+r.estado+'</span></td><td style="font-size:.82rem;color:#a0aec0">'+new Date(r.creado_en+'Z').toLocaleString('es-MX')+'</td></tr>').join('') +
+    '</tbody></table>';
 }
+
+document.getElementById('nombre').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('telefono').focus(); });
+document.getElementById('telefono').addEventListener('keydown', e => { if(e.key==='Enter') registrar(); });
 </script>
 </body>
-</html>
-"""
+</html>"""
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
