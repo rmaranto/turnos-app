@@ -13,147 +13,160 @@ TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_WHATSAPP_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
 
+
 def get_db():
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
 
 def init_db():
-        with get_db() as db:
-                    db.execute("""
-                                CREATE TABLE IF NOT EXISTS turnos (
-                                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                                                nombre TEXT NOT NULL,
-                                                                                telefono TEXT NOT NULL,
-                                                                                                numero_turno INTEGER NOT NULL,
-                                                                                                                estado TEXT DEFAULT 'esperando',
-                                                                                                                                creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                                                                                                                                            )
-                                                                                                                                                    """)
-                    db.execute("""
-                        CREATE TABLE IF NOT EXISTS config (
-                            clave TEXT PRIMARY KEY,
-                            valor TEXT
-                        )
-                    """)
-                    db.execute("INSERT OR IGNORE INTO config VALUES ('ultimo_turno', '0')")
-                    db.commit()
+    with get_db() as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS turnos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL,
+                telefono TEXT NOT NULL,
+                numero_turno INTEGER NOT NULL,
+                estado TEXT DEFAULT 'esperando',
+                creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS config (
+                clave TEXT PRIMARY KEY,
+                valor TEXT
+            )
+        """)
+        db.execute("INSERT OR IGNORE INTO config VALUES ('ultimo_turno', '0')")
+        db.commit()
 
-    # Inicializar la base de datos al arrancar (funciona con gunicorn y desarrollo)
-    init_db()
+
+# Inicializar la BD al arrancar (funciona tanto con gunicorn como en desarrollo)
+init_db()
+
 
 def send_whatsapp(to_number, message):
-        if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
-                    print(f"[WhatsApp simulado] -> {to_number}: {message}")
-                    return True
-                try:
-                            client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-                            to = f"whatsapp:+{to_number.strip().lstrip('+')}"
-                            client.messages.create(body=message, from_=TWILIO_WHATSAPP_FROM, to=to)
-                            return True
-except Exception as e:
+    if not TWILIO_ACCOUNT_SID or not TWILIO_AUTH_TOKEN:
+        print(f"[WhatsApp simulado] -> {to_number}: {message}")
+        return True
+    try:
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        to = f"whatsapp:+{to_number.strip().lstrip('+')}"
+        client.messages.create(body=message, from_=TWILIO_WHATSAPP_FROM, to=to)
+        return True
+    except Exception as e:
         print(f"Error WhatsApp: {e}")
         return False
 
+
 def get_siguiente_turno():
-        with get_db() as db:
-                    row = db.execute("SELECT valor FROM config WHERE clave='ultimo_turno'").fetchone()
-                    siguiente = int(row["valor"]) + 1
-                    db.execute("UPDATE config SET valor=? WHERE clave='ultimo_turno'", (siguiente,))
-                    db.commit()
-                    return siguiente
+    with get_db() as db:
+        row = db.execute("SELECT valor FROM config WHERE clave='ultimo_turno'").fetchone()
+        siguiente = int(row["valor"]) + 1
+        db.execute("UPDATE config SET valor=? WHERE clave='ultimo_turno'", (siguiente,))
+        db.commit()
+        return siguiente
+
 
 @app.route("/")
 def index():
-        return render_template_string(HTML_TEMPLATE)
+    return render_template_string(HTML_TEMPLATE)
+
 
 @app.route("/api/registrar", methods=["POST"])
 def registrar():
-        data = request.get_json()
+    data = request.get_json()
     nombre = data.get("nombre", "").strip()
     telefono = data.get("telefono", "").strip()
 
     if not nombre or not telefono:
-                return jsonify({"error": "Nombre y teléfono son requeridos"}), 400
+        return jsonify({"error": "Nombre y telefono son requeridos"}), 400
 
     if len(telefono) < 8:
-                return jsonify({"error": "Teléfono inválido"}), 400
+        return jsonify({"error": "Telefono invalido"}), 400
 
     numero = get_siguiente_turno()
 
     with get_db() as db:
-                db.execute(
-                                "INSERT INTO turnos (nombre, telefono, numero_turno) VALUES (?, ?, ?)",
-                                (nombre, telefono, numero)
-                )
-                db.commit()
+        db.execute(
+            "INSERT INTO turnos (nombre, telefono, numero_turno) VALUES (?, ?, ?)",
+            (nombre, telefono, numero)
+        )
+        db.commit()
 
     esperando = get_count_esperando()
     msg = (
-                f"✅ Hola {nombre}! Tu turno es el N° {numero}.\n"
-                f"Hay {esperando - 1} persona(s) antes que tú.\n"
-                f"Te avisaremos cuando sea tu turno. 🎟️"
+        f"Hola {nombre}! Tu turno es el N {numero}.\n"
+        f"Hay {esperando - 1} persona(s) antes que tu.\n"
+        f"Te avisaremos cuando sea tu turno."
     )
     send_whatsapp(telefono, msg)
 
     return jsonify({
-                "ok": True,
-                "turno": numero,
-                "mensaje": f"Turno N° {numero} registrado. Se enviará aviso por WhatsApp."
+        "ok": True,
+        "turno": numero,
+        "mensaje": f"Turno N {numero} registrado. Se enviara aviso por WhatsApp."
     })
+
 
 @app.route("/api/fila", methods=["GET"])
 def ver_fila():
-        with get_db() as db:
-                    rows = db.execute(
-                                    "SELECT * FROM turnos WHERE estado='esperando' ORDER BY numero_turno ASC"
-                    ).fetchall()
-                    return jsonify([dict(r) for r in rows])
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT * FROM turnos WHERE estado='esperando' ORDER BY numero_turno ASC"
+        ).fetchall()
+        return jsonify([dict(r) for r in rows])
 
-    @app.route("/api/llamar", methods=["POST"])
+
+@app.route("/api/llamar", methods=["POST"])
 def llamar_siguiente():
-        with get_db() as db:
-                    siguiente = db.execute(
-                                    "SELECT * FROM turnos WHERE estado='esperando' ORDER BY numero_turno ASC LIMIT 1"
-                    ).fetchone()
+    with get_db() as db:
+        siguiente = db.execute(
+            "SELECT * FROM turnos WHERE estado='esperando' ORDER BY numero_turno ASC LIMIT 1"
+        ).fetchone()
 
-            if not siguiente:
-                            return jsonify({"error": "No hay turnos en espera"}), 404
+        if not siguiente:
+            return jsonify({"error": "No hay turnos en espera"}), 404
 
         siguiente = dict(siguiente)
         db.execute("UPDATE turnos SET estado='llamado' WHERE id=?", (siguiente["id"],))
         db.commit()
 
     msg = (
-                f"🔔 {siguiente['nombre']}, ¡ES TU TURNO! N° {siguiente['numero_turno']}.\n"
-                f"Por favor acércate al mostrador ahora."
+        f"{siguiente['nombre']}, ES TU TURNO! N {siguiente['numero_turno']}.\n"
+        f"Por favor acercate al mostrador ahora."
     )
     send_whatsapp(siguiente["telefono"], msg)
 
     return jsonify({"ok": True, "turno": siguiente})
 
+
 @app.route("/api/completar/<int:turno_id>", methods=["POST"])
 def completar(turno_id):
-        with get_db() as db:
-                    row = db.execute("SELECT * FROM turnos WHERE id=?", (turno_id,)).fetchone()
-                    if not row:
-                                    return jsonify({"error": "Turno no encontrado"}), 404
-                                db.execute("UPDATE turnos SET estado='completado' WHERE id=?", (turno_id,))
+    with get_db() as db:
+        row = db.execute("SELECT * FROM turnos WHERE id=?", (turno_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Turno no encontrado"}), 404
+        db.execute("UPDATE turnos SET estado='completado' WHERE id=?", (turno_id,))
         db.commit()
         return jsonify({"ok": True})
 
+
 @app.route("/api/historial", methods=["GET"])
 def historial():
-        with get_db() as db:
-                    rows = db.execute(
-                        "SELECT * FROM turnos ORDER BY numero_turno DESC LIMIT 50"
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT * FROM turnos ORDER BY numero_turno DESC LIMIT 50"
         ).fetchall()
         return jsonify([dict(r) for r in rows])
 
+
 def get_count_esperando():
-        with get_db() as db:
-                    r = db.execute("SELECT COUNT(*) as c FROM turnos WHERE estado='esperando'").fetchone()
+    with get_db() as db:
+        r = db.execute("SELECT COUNT(*) as c FROM turnos WHERE estado='esperando'").fetchone()
         return r["c"]
+
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -206,7 +219,7 @@ tr:hover td { background: #f7fafc; }
 </head>
 <body>
 <header>
-<span style="font-size:1.8rem">🎟️</span>
+<span style="font-size:1.8rem">&#127903;</span>
 <h1>Sistema de Turnos con WhatsApp</h1>
 </header>
 <div class="tabs">
@@ -216,57 +229,46 @@ tr:hover td { background: #f7fafc; }
 <div class="tab" onclick="showTab('historial')">Historial</div>
 </div>
 <div class="content">
-
-<!-- REGISTRO -->
 <div id="tab-registro" class="panel active">
 <div class="card">
 <h2 style="margin-bottom:20px;color:#2b6cb0">Sacar turno</h2>
 <div id="msg-registro"></div>
 <div class="form-group">
 <label>Nombre completo</label>
-<input type="text" id="nombre" placeholder="Ej: Juan García" />
+<input type="text" id="nombre" placeholder="Ej: Juan Garcia" />
 </div>
 <div class="form-group">
-<label>Celular (con código de país, sin +)</label>
+<label>Celular (con codigo de pais, sin +)</label>
 <input type="tel" id="telefono" placeholder="Ej: 5491155554444" />
 </div>
-<button class="btn btn-primary" onclick="registrar()">Obtener turno 🎟️</button>
-<p class="refresh-note" style="margin-top:12px">Recibirás una notificación por WhatsApp con tu número de turno y cuando te llamen.</p>
+<button class="btn btn-primary" onclick="registrar()">Obtener turno</button>
+<p class="refresh-note" style="margin-top:12px">Recibiras una notificacion por WhatsApp con tu numero de turno y cuando te llamen.</p>
 </div>
 </div>
-
-<!-- FILA -->
 <div id="tab-fila" class="panel">
 <div class="card">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
 <h2 style="color:#2b6cb0">Fila de espera</h2>
-<button class="btn btn-sm" style="background:#e2e8f0;color:#4a5568" onclick="cargarFila()">↻ Actualizar</button>
+<button class="btn btn-sm" style="background:#e2e8f0;color:#4a5568" onclick="cargarFila()">Actualizar</button>
 </div>
 <div id="tabla-fila"><div class="empty">Cargando...</div></div>
 </div>
 </div>
-
-<!-- ADMIN -->
 <div id="tab-admin" class="panel">
 <div id="stats-container" class="stats-grid"></div>
 <div class="card">
 <h2 style="margin-bottom:16px;color:#2b6cb0">Panel de control</h2>
 <div id="msg-admin"></div>
-<button class="btn btn-success" onclick="llamarSiguiente()" style="margin-bottom:16px">
-📢 Llamar siguiente turno
-</button>
+<button class="btn btn-success" onclick="llamarSiguiente()" style="margin-bottom:16px">Llamar siguiente turno</button>
 <div id="turno-llamado"></div>
 </div>
 </div>
-
-<!-- HISTORIAL -->
 <div id="tab-historial" class="panel">
 <div class="card">
 <h2 style="margin-bottom:16px;color:#2b6cb0">Historial reciente</h2>
 <div id="tabla-historial"><div class="empty">Cargando...</div></div>
 </div>
 </div>
-
 </div>
 <script>
 function showTab(name) {
@@ -277,83 +279,70 @@ if (name==='fila') cargarFila();
 if (name==='admin') { cargarFila(); cargarStats(); }
 if (name==='historial') cargarHistorial();
 }
-
 async function registrar() {
 const nombre = document.getElementById('nombre').value.trim();
 const telefono = document.getElementById('telefono').value.trim();
 const el = document.getElementById('msg-registro');
-if (!nombre || !telefono) { el.innerHTML='<div class="alert alert-error">Completá ambos campos.</div>'; return; }
+if (!nombre || !telefono) { el.innerHTML='<div class="alert alert-error">Completa ambos campos.</div>'; return; }
 const res = await fetch('/api/registrar', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({nombre, telefono})});
 const data = await res.json();
 if (data.ok) {
-el.innerHTML = `<div class="alert alert-success">✅ Turno N° <strong>${data.turno}</strong> asignado. Recibirás WhatsApp de confirmación.</div>`;
+el.innerHTML = '<div class="alert alert-success">Turno N <strong>' + data.turno + '</strong> asignado. Recibiras WhatsApp de confirmacion.</div>';
 document.getElementById('nombre').value='';
 document.getElementById('telefono').value='';
 } else {
-el.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
+el.innerHTML = '<div class="alert alert-error">' + data.error + '</div>';
 }
 }
-
 async function cargarFila() {
 const res = await fetch('/api/fila');
 const filas = await res.json();
 const el = document.getElementById('tabla-fila');
-if (!filas.length) { el.innerHTML='<div class="empty">🎉 No hay turnos en espera</div>'; return; }
-el.innerHTML = `<table><thead><tr><th>N° Turno</th><th>Nombre</th><th>Teléfono</th><th>Estado</th></tr></thead><tbody>
-${filas.map(f=>`<tr><td><strong>#${f.numero_turno}</strong></td><td>${f.nombre}</td><td>${f.telefono}</td><td><span class="estado estado-esperando">Esperando</span></td></tr>`).join('')}
-</tbody></table>`;
+if (!filas.length) { el.innerHTML='<div class="empty">No hay turnos en espera</div>'; return; }
+el.innerHTML = '<table><thead><tr><th>N Turno</th><th>Nombre</th><th>Telefono</th><th>Estado</th></tr></thead><tbody>' +
+filas.map(f=>'<tr><td><strong>#'+f.numero_turno+'</strong></td><td>'+f.nombre+'</td><td>'+f.telefono+'</td><td><span class="estado estado-esperando">Esperando</span></td></tr>').join('') +
+'</tbody></table>';
 }
-
 async function cargarStats() {
 const [fila, hist] = await Promise.all([fetch('/api/fila').then(r=>r.json()), fetch('/api/historial').then(r=>r.json())]);
 const completados = hist.filter(h=>h.estado==='completado').length;
 const llamados = hist.filter(h=>h.estado==='llamado').length;
-document.getElementById('stats-container').innerHTML = `
-<div class="card stat"><div class="stat-num">${fila.length}</div><div class="stat-label">En espera</div></div>
-<div class="card stat"><div class="stat-num">${llamados}</div><div class="stat-label">Llamados</div></div>
-<div class="card stat"><div class="stat-num">${completados}</div><div class="stat-label">Completados</div></div>`;
+document.getElementById('stats-container').innerHTML =
+'<div class="card stat"><div class="stat-num">'+fila.length+'</div><div class="stat-label">En espera</div></div>' +
+'<div class="card stat"><div class="stat-num">'+llamados+'</div><div class="stat-label">Llamados</div></div>' +
+'<div class="card stat"><div class="stat-num">'+completados+'</div><div class="stat-label">Completados</div></div>';
 }
-
 async function llamarSiguiente() {
 const el = document.getElementById('msg-admin');
 const res = await fetch('/api/llamar', {method:'POST'});
 const data = await res.json();
 if (data.ok) {
 const t = data.turno;
-document.getElementById('turno-llamado').innerHTML = `
-<div class="alert alert-success">
-🔔 Llamando turno: <span class="turno-badge">#${t.numero_turno}</span>
-<strong style="margin-left:12px">${t.nombre}</strong>
-<span style="color:#718096;margin-left:8px">${t.telefono}</span>
-<button class="btn btn-sm" style="background:#38a169;color:white;margin-left:12px" onclick="completar(${t.id})">✓ Completar</button>
-</div>`;
+document.getElementById('turno-llamado').innerHTML =
+'<div class="alert alert-success">Llamando turno: <span class="turno-badge">#'+t.numero_turno+'</span>' +
+'<strong style="margin-left:12px">'+t.nombre+'</strong>' +
+'<span style="color:#718096;margin-left:8px">'+t.telefono+'</span>' +
+'<button class="btn btn-sm" style="background:#38a169;color:white;margin-left:12px" onclick="completar('+t.id+')">Completar</button></div>';
 cargarStats();
 } else {
-el.innerHTML = `<div class="alert alert-error">⚠️ ${data.error}</div>`;
+el.innerHTML = '<div class="alert alert-error">'+data.error+'</div>';
 setTimeout(()=>el.innerHTML='', 3000);
 }
 }
-
 async function completar(id) {
 await fetch('/api/completar/'+id, {method:'POST'});
-document.getElementById('turno-llamado').innerHTML = '<div class="alert alert-success">✅ Turno completado.</div>';
+document.getElementById('turno-llamado').innerHTML = '<div class="alert alert-success">Turno completado.</div>';
 setTimeout(()=>document.getElementById('turno-llamado').innerHTML='', 2000);
 cargarStats();
 }
-
 async function cargarHistorial() {
 const res = await fetch('/api/historial');
 const rows = await res.json();
 const el = document.getElementById('tabla-historial');
-if (!rows.length) { el.innerHTML='<div class="empty">Sin registros aún</div>'; return; }
-el.innerHTML = `<table><thead><tr><th>N°</th><th>Nombre</th><th>Teléfono</th><th>Estado</th><th>Registrado</th></tr></thead><tbody>
-${rows.map(r=>`<tr>
-<td><strong>#${r.numero_turno}</strong></td>
-<td>${r.nombre}</td><td>${r.telefono}</td>
-<td><span class="estado estado-${r.estado}">${r.estado}</span></td>
-<td style="font-size:.85rem;color:#718096">${new Date(r.creado_en+'Z').toLocaleString('es')}</td>
-</tr>`).join('')}
-</tbody></table>`;
+if (!rows.length) { el.innerHTML='<div class="empty">Sin registros aun</div>'; return; }
+el.innerHTML = '<table><thead><tr><th>N</th><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Registrado</th></tr></thead><tbody>' +
+rows.map(r=>'<tr><td><strong>#'+r.numero_turno+'</strong></td><td>'+r.nombre+'</td><td>'+r.telefono+'</td><td><span class="estado estado-'+r.estado+'">'+r.estado+'</span></td><td style="font-size:.85rem;color:#718096">'+new Date(r.creado_en+'Z').toLocaleString('es')+'</td></tr>').join('') +
+'</tbody></table>';
 }
 </script>
 </body>
@@ -361,5 +350,5 @@ ${rows.map(r=>`<tr>
 """
 
 if __name__ == "__main__":
-        port = int(os.environ.get("PORT", 5000))
-        app.run(host="0.0.0.0", port=port, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
